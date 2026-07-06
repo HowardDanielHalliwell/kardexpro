@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase, TRIMESTERS, COMPONENT_KINDS } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import ClassroomPanel from '../components/ClassroomPanel'
 
 const SUBJECT_COLORS = ['#1A2D6B', '#F47920', '#0E7490', '#7C3AED', '#16A34A', '#DC2626', '#D97706', '#DB2777']
 
@@ -30,6 +31,9 @@ export default function SubjectConfig() {
   const [expandedId, setExpandedId] = useState(null)
   const [activities, setActivities] = useState({}) // componentId -> []
   const [activityForm, setActivityForm] = useState(null) // {componentId, name, max_score, due_date}
+
+  // Se incrementa tras sincronizar con Classroom para recargar componentes/actividades
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     if (!user) return
@@ -64,6 +68,7 @@ export default function SubjectConfig() {
     setComponents([])
     setExpandedId(null)
     setComponentForm(null)
+    setActivities({})
     if (!subjectId) return
     setLoadingComponents(true)
     supabase
@@ -77,7 +82,7 @@ export default function SubjectConfig() {
         setComponents(data ?? [])
         setLoadingComponents(false)
       })
-  }, [subjectId, trimester])
+  }, [subjectId, trimester, refreshKey])
 
   const total = components.reduce((sum, c) => sum + Number(c.percentage ?? 0), 0)
   const totalOk = total === 100
@@ -341,6 +346,15 @@ export default function SubjectConfig() {
               ))}
             </div>
           </div>
+
+          <ClassroomPanel
+            subject={subjects.find((s) => s.id === subjectId)}
+            trimester={trimester}
+            onSubjectUpdated={(updated) =>
+              setSubjects((prev) => prev.map((s) => (s.id === updated.id ? updated : s)))
+            }
+            onSynced={() => setRefreshKey((k) => k + 1)}
+          />
 
           <div className="card">
             <h2>Componentes de evaluación · {trimester}° trimestre</h2>

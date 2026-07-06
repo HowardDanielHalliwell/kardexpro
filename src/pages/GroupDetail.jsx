@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
-const HEADER_WORDS = /^(no\.?|núm\.?|numero|número|lista|#|nombre(s)?|alumno(s)?|apellido(s)?|estudiante(s)?|nombre completo)$/i
+const HEADER_WORDS = /^(no\.?|núm\.?|numero|número|lista|#|nombre(s)?|alumno(s)?|apellido(s)?|estudiante(s)?|nombre completo|correo( electr[oó]nico)?|e-?mail)$/i
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-// Convierte las filas crudas de la hoja en { list_number?, full_name }
+// Convierte las filas crudas de la hoja en { list_number?, full_name, email? }.
+// Las celdas con forma de correo se reconocen automáticamente, venga o no
+// un encabezado "correo"/"email" en el archivo.
 function parseSheetRows(rows) {
   const parsed = []
   for (const row of rows) {
@@ -12,10 +15,13 @@ function parseSheetRows(rows) {
     if (cells.length === 0) continue
 
     let listNumber = null
+    let email = ''
     let nameParts = []
     for (const cell of cells) {
       const asNumber = Number(cell)
-      if (listNumber === null && Number.isInteger(asNumber) && asNumber > 0 && asNumber < 500 && cell.length <= 4) {
+      if (EMAIL_RE.test(cell)) {
+        if (!email) email = cell.toLowerCase()
+      } else if (listNumber === null && Number.isInteger(asNumber) && asNumber > 0 && asNumber < 500 && cell.length <= 4) {
         listNumber = asNumber
       } else if (Number.isNaN(asNumber)) {
         nameParts.push(cell)
@@ -23,9 +29,9 @@ function parseSheetRows(rows) {
     }
     const fullName = nameParts.join(' ').replace(/\s+/g, ' ').trim()
     if (!fullName) continue
-    // Descarta filas de encabezado ("No.", "Nombre del alumno", etc.)
+    // Descarta filas de encabezado ("No.", "Nombre del alumno", "Correo", etc.)
     if (nameParts.every((p) => HEADER_WORDS.test(p))) continue
-    parsed.push({ list_number: listNumber, full_name: fullName })
+    parsed.push({ list_number: listNumber, full_name: fullName, email })
   }
   return parsed
 }
@@ -40,6 +46,7 @@ export default function GroupDetail() {
 
   // Alta manual en cadena
   const [newName, setNewName] = useState('')
+  const [newEmail, setNewEmail] = useState('')
   const [adding, setAdding] = useState(false)
   const nameInputRef = useRef(null)
 
@@ -79,7 +86,13 @@ export default function GroupDetail() {
     setError('')
     const { data, error: err } = await supabase
       .from('students')
-      .insert({ group_id: groupId, list_number: nextListNumber(), full_name: fullName, active: true })
+      .insert({
+        group_id: groupId,
+        list_number: nextListNumber(),
+        full_name: fullName,
+        email: newEmail.trim().toLowerCase() || null,
+        active: true,
+      })
       .select()
       .single()
     setAdding(false)
@@ -89,6 +102,7 @@ export default function GroupDetail() {
     }
     setStudents((prev) => [...prev, data].sort((a, b) => (a.list_number ?? 0) - (b.list_number ?? 0)))
     setNewName('')
+    setNewEmail('')
     nameInputRef.current?.focus() // alta en cadena: listo para el siguiente
   }
 
@@ -132,7 +146,15 @@ export default function GroupDetail() {
     setError('')
     const { data, error: err } = await supabase
       .from('students')
-      .insert(preview.map((r) => ({ group_id: groupId, list_number: r.list_number, full_name: r.full_name, active: true })))
+      .insert(
+        preview.map((r) => ({
+          group_id: groupId,
+          list_number: r.list_number,
+          full_name: r.full_name,
+          email: r.email?.trim().toLowerCase() || null,
+          active: true,
+        }))
+      )
       .select()
     setImporting(false)
     if (err) {
@@ -203,8 +225,18 @@ export default function GroupDetail() {
             ＋
           </button>
         </div>
+        <input
+          className="input"
+          type="email"
+          placeholder="Correo del alumno (opcional, para Classroom)"
+          value={newEmail}
+          onChange={(e) => setNewEmail(e.target.value)}
+          style={{ marginTop: 8 }}
+          enterKeyHint="done"
+        />
         <p className="muted" style={{ marginTop: 8 }}>
-          Presiona Enter para agregar y seguir con el siguiente alumno.
+          Presiona Enter para agregar y seguir con el siguiente alumno. El correo se usa para
+          emparejar al alumno con sus entregas de Google Classroom.
         </p>
       </form>
 
@@ -222,7 +254,8 @@ export default function GroupDetail() {
           📄 Elegir archivo (.xlsx / .csv)
         </button>
         <p className="muted" style={{ marginTop: 8 }}>
-          El archivo puede tener columnas de número de lista y nombre. Verás una vista previa antes de confirmar.
+          El archivo puede tener columnas de número de lista, nombre y correo (el correo se
+          detecta solo). Verás una vista previa antes de confirmar.
         </p>
       </div>
 
@@ -238,7 +271,14 @@ export default function GroupDetail() {
           activeStudents.map((s) => (
             <div key={s.id} className="list-item">
               <span className="list-number">{s.list_number}</span>
-              <span className="student-name">{s.full_name}</span>
+              <span className="student-name">
+                {s.full_name}
+                {s.email && (
+                  <span className="muted" style={{ display: 'block', fontSize: '0.78rem', fontWeight: 400 }}>
+                    {s.email}
+                  </span>
+                )}
+              </span>
               <button
                 className="icon-btn"
                 title={`Dar de baja a ${s.full_name}`}
@@ -288,6 +328,7 @@ export default function GroupDetail() {
                   <tr>
                     <th>#</th>
                     <th>Nombre completo</th>
+                    <th>Correo</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -296,6 +337,7 @@ export default function GroupDetail() {
                     <tr key={i}>
                       <td>{r.list_number}</td>
                       <td>{r.full_name}</td>
+                      <td className="muted">{r.email || '—'}</td>
                       <td>
                         <button
                           className="remove-row"
