@@ -61,26 +61,57 @@ export function oauthClient() {
 // El "state" del flujo OAuth lleva el teacher_id firmado con HMAC para que
 // el callback (que llega sin JWT, es un redirect del navegador desde Google)
 // pueda verificar a quién pertenece sin confiar en datos manipulables.
+// Además incluye un nonce que también viaja en una cookie HttpOnly: así el
+// callback solo acepta el state en el MISMO navegador que inició el flujo
+// (evita que un tercero haga que la víctima complete un state ajeno y sus
+// tokens de Google queden guardados bajo la cuenta del atacante).
 const STATE_TTL_MS = 10 * 60 * 1000
+
+export const NONCE_COOKIE = 'gc_oauth_nonce'
+
+export function newNonce() {
+  return crypto.randomBytes(16).toString('hex')
+}
+
+export function nonceCookieHeader(nonce) {
+  // Path cubre /api/classroom/auth-url y /api/classroom/callback.
+  // SameSite=Lax: la cookie sí se manda en la navegación top-level que hace
+  // Google al redirigir de vuelta. Max-Age=0 la borra.
+  const maxAge = nonce ? Math.floor(STATE_TTL_MS / 1000) : 0
+  return `${NONCE_COOKIE}=${nonce || ''}; Path=/api/classroom; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`
+}
+
+export function nonceFromCookies(req) {
+  const raw = req.headers.cookie || ''
+  for (const part of raw.split(';')) {
+    const [name, ...rest] = part.trim().split('=')
+    if (name === NONCE_COOKIE) return rest.join('=')
+  }
+  return null
+}
 
 function stateSignature(payload) {
   return crypto.createHmac('sha256', process.env.GOOGLE_CLIENT_SECRET).update(payload).digest('hex')
 }
 
-export function signState(teacherId) {
-  const payload = `${teacherId}.${Date.now() + STATE_TTL_MS}`
+function safeEqual(a, b) {
+  const bufA = Buffer.from(a)
+  const bufB = Buffer.from(b)
+  return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB)
+}
+
+export function signState(teacherId, nonce) {
+  const payload = `${teacherId}.${nonce}.${Date.now() + STATE_TTL_MS}`
   return `${payload}.${stateSignature(payload)}`
 }
 
-export function verifyState(state) {
-  if (typeof state !== 'string') return null
+export function verifyState(state, cookieNonce) {
+  if (typeof state !== 'string' || !cookieNonce) return null
   const parts = state.split('.')
-  if (parts.length !== 3) return null
-  const [teacherId, expiresAt, signature] = parts
-  const expected = stateSignature(`${teacherId}.${expiresAt}`)
-  const a = Buffer.from(signature)
-  const b = Buffer.from(expected)
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null
+  if (parts.length !== 4) return null
+  const [teacherId, nonce, expiresAt, signature] = parts
+  if (!safeEqual(signature, stateSignature(`${teacherId}.${nonce}.${expiresAt}`))) return null
+  if (!safeEqual(nonce, cookieNonce)) return null
   if (Number(expiresAt) < Date.now()) return null
   return teacherId
 }

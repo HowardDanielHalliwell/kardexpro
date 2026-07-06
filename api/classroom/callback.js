@@ -2,7 +2,14 @@
 // Google redirige aquí con ?code&state. Intercambia el code por tokens y los
 // guarda en kardex.classroom_tokens (service role). El navegador vuelve a
 // /materias con un flag de resultado.
-import { assertServerEnv, oauthClient, verifyState, adminClient } from '../_lib/classroom.js'
+import {
+  assertServerEnv,
+  oauthClient,
+  verifyState,
+  adminClient,
+  nonceFromCookies,
+  nonceCookieHeader,
+} from '../_lib/classroom.js'
 
 export default async function handler(req, res) {
   const appOrigin = process.env.GOOGLE_REDIRECT_URI
@@ -11,6 +18,7 @@ export default async function handler(req, res) {
 
   const redirect = (params) => {
     res.statusCode = 302
+    res.setHeader('Set-Cookie', nonceCookieHeader(null)) // el nonce es de un solo uso
     res.setHeader('Location', `${appOrigin}/materias?${new URLSearchParams(params)}`)
     res.end()
   }
@@ -23,7 +31,7 @@ export default async function handler(req, res) {
     if (error) return fail('Google devolvió un error: ' + error)
     if (!code) return fail('Google no envió el código de autorización.')
 
-    const teacherId = verifyState(state)
+    const teacherId = verifyState(state, nonceFromCookies(req))
     if (!teacherId) return fail('El enlace de autorización expiró o no es válido. Intenta conectar de nuevo.')
 
     const { tokens } = await oauthClient().getToken(code)
