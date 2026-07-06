@@ -16,9 +16,7 @@ export default function Layout() {
           Kardex<span>Pro</span>
         </div>
         <div className="subtitle">
-          Genius Cooper™
-          <br />
-          Colegio Mano Amiga Chalco
+          © 2026 H. D. Halliwell. Todos los derechos reservados. Genius Cooper™
         </div>
       </header>
 

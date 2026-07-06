@@ -69,9 +69,11 @@ a { color: var(--navy); text-decoration: none; }
 
 .app-header .subtitle {
   margin-left: auto;
-  font-size: 0.78rem;
+  font-size: 0.62rem;
+  line-height: 1.35;
   opacity: 0.85;
   text-align: right;
+  max-width: 60%;
 }
 
 .app-main {
