@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase, isSupabaseConfigured, CONFIG_ERROR_ES } from '../lib/supabase'
 
 const AuthContext = createContext(null)
 
@@ -11,13 +11,19 @@ const AUTH_ERRORS_ES = [
   [/unable to validate email|invalid format|invalid email/i, 'El correo no tiene un formato válido.'],
   [/rate limit|too many requests/i, 'Demasiados intentos. Espera un momento e inténtalo de nuevo.'],
   [/signup.*disabled/i, 'El registro de cuentas nuevas está deshabilitado.'],
-  [/network|fetch/i, 'No hay conexión con el servidor. Revisa tu internet.'],
+  [
+    /network|fetch/i,
+    'No se pudo contactar al servidor de Supabase. Causas típicas: la VITE_SUPABASE_URL ' +
+      'del .env está mal escrita o sigue con el valor de ejemplo, o no hay internet.',
+  ],
 ]
 
 export function translateAuthError(error) {
   const msg = error?.message ?? String(error ?? '')
+  // Siempre deja la causa técnica completa en la consola del navegador (F12)
+  console.error('[KardexPro] Error de autenticación (detalle técnico):', error)
   for (const [pattern, text] of AUTH_ERRORS_ES) {
-    if (pattern.test(msg)) return text
+    if (pattern.test(msg)) return `${text} (detalle: ${msg})`
   }
   return `Ocurrió un error inesperado. Inténtalo de nuevo. (${msg})`
 }
@@ -68,11 +74,13 @@ export function AuthProvider({ children }) {
   }, [userId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function signIn(email, password) {
+    if (!isSupabaseConfigured) throw new Error(CONFIG_ERROR_ES)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw new Error(translateAuthError(error))
   }
 
   async function signUp(email, password, fullName) {
+    if (!isSupabaseConfigured) throw new Error(CONFIG_ERROR_ES)
     const { data, error } = await supabase.auth.signUp({
       email,
       password,

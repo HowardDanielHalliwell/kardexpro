@@ -3,11 +3,21 @@ import { createClient } from '@supabase/supabase-js'
 const url = import.meta.env.VITE_SUPABASE_URL
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-if (!url || !anonKey) {
-  console.error(
-    'Faltan las variables VITE_SUPABASE_URL y/o VITE_SUPABASE_ANON_KEY. ' +
-      'Copia .env.example como .env y llena tus credenciales.'
-  )
+// Detecta tanto variables ausentes como los placeholders de .env.example
+// que quedaron sin reemplazar (TU-PROYECTO / TU_ANON_KEY_AQUI).
+const isPlaceholder = (v) => !v || /TU[-_](PROYECTO|ANON)/i.test(v)
+export const isSupabaseConfigured = !isPlaceholder(url) && !isPlaceholder(anonKey)
+
+export const CONFIG_ERROR_ES =
+  'Supabase no está configurado: el archivo .env no existe, no se guardó, ' +
+  'o aún tiene los valores de ejemplo (TU-PROYECTO / TU_ANON_KEY_AQUI). ' +
+  'Edita .env con tus credenciales reales, guárdalo y reinicia npm run dev.'
+
+if (!isSupabaseConfigured) {
+  console.error('[KardexPro] ' + CONFIG_ERROR_ES, {
+    VITE_SUPABASE_URL: url ?? '(undefined)',
+    VITE_SUPABASE_ANON_KEY: anonKey ? anonKey.slice(0, 8) + '…' : '(undefined)',
+  })
 }
 
 // Las tablas de KardexPro viven en el schema dedicado "kardex"
